@@ -1,7 +1,9 @@
 # Case Study: <Project Title>
 
 ## Overview
-Brief description of the problem and stakeholders.
+A workflow for ingesting bioacoustic data and displaying bird/animal detections in real-time for a dashboard available
+through a web app and monitors around UD campus. Also looking to display summary data that relates animal
+detections to environmental data.
 
 ## Repository Structure
 - `src/` – source code
