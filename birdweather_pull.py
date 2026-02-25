@@ -25,7 +25,7 @@
 
 
 
-
+# -------- CONTINUOUS REAL TIME API CALLS -------------
 
 import time #time module - so we can pause execution using sleep().
 import requests #to make HTTP API calls.
