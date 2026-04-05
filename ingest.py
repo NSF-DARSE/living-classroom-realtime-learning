@@ -32,6 +32,7 @@ while True:
         r = requests.get(URL, timeout=20)
         r.raise_for_status()
         data = r.json()
+        # print(data)
 
         detections = data.get("detections", [])
 

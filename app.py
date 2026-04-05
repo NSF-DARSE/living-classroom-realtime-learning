@@ -1,4 +1,5 @@
-from flask import Flask, jsonify, render_template_string # flask framework
+from flask import Flask, jsonify, render_template_string, request
+from datetime import datetime, timedelta # flask framework
 import sqlite3
 # flask - main app object
 # jsonify - returns json response
@@ -17,6 +18,16 @@ app = Flask(__name__) #__name__ tells Flask where this file is located.
 
 DB_NAME = "birds.db"
 
+def get_filter_condition(filter_value):
+    if filter_value == "1h":
+        cutoff = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
+        return "WHERE timestamp >= ?", (cutoff,)
+    elif filter_value == "today":
+        start_of_day = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        return "WHERE timestamp >= ?", (start_of_day,)
+    else:
+        return "", ()
+
 # Simple HTML page (dashboard)
 HTML = """
 <!doctype html>
@@ -31,7 +42,7 @@ HTML = """
   code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
 
   /* NEW: cards */
-  #cards { margin-top: 14px; max-width: 720px; }
+  #cards { margin-top: 14px; max-width: 720px; padding: 10px 12px; }
   .dcard { padding: 12px 14px; border: 1px solid #ddd; border-radius: 12px; margin-bottom: 10px; }
   .dtitle { font-weight: 700; font-size: 16px; }
   .dmeta { color: #666; margin-top: 4px; font-size: 13px; }
@@ -60,10 +71,50 @@ HTML = """
     font-weight: 700;
     white-space: nowrap;
   }
+  .two-col {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+    align-items: stretch;
+    max-width: 1200px;
+  }
+
+  .side-list .dcard {
+    margin-bottom: 10px;
+  }
+  
+
+  .side-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  h3 {
+    margin-bottom: 10px;
+  }
+
+  button.active {
+    background-color: #00539f;
+    color: white;
+    border: none;
+  }
 </style>
 </head>
+
 <body>
-  <h2>BirdWeather Live Dashboard</h2>
+  <h2>UD Farm Bird Monitoring Dashboard</h2>
+  <p style="color:#666; margin-top:-10px;">
+    Real-time bird detections with historical analytics
+  </p>
+
+  <div style="margin: 16px 0 18px 0;">
+    <button onclick="setFilter('1h')" id="btn-1h">Last 1 Hour</button>
+    <button onclick="setFilter('today')" id="btn-today">Today</button>
+    <button onclick="setFilter('all')" id="btn-all">All Time</button>
+  </div>
+
   <div class="summary-grid">
     <div class="scard">
       <div class="slabel">Total Detections</div>
@@ -82,16 +133,56 @@ HTML = """
       <div class="svalue" id="latestTimestamp">-</div>
     </div>
   </div>
+  
+  
+  <div class="two-col">
 
-  <div class="big">Latest 5 detections</div>
-    <div id="cards"></div>
-    <div class="muted" id="updated"></div>
+    <!-- LEFT -->
+    <div>
+      <div class="big">Recent Bird Activity</div>
+      <div id="cards"></div>
+      <div class="muted" id="updated"></div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="side-list">
+      <div class="big">Top 5 Species</div>
+      <div id="topSpeciesList"></div>
+    </div>
+
   </div>
 
+  
+
+
+
+
+
+
+
+
+
   <script>
+    let currentFilter = "all";
+    function setFilter(filter) {
+      currentFilter = filter;
+
+      // remove active from all buttons
+      document.getElementById("btn-1h").classList.remove("active");
+      document.getElementById("btn-today").classList.remove("active");
+      document.getElementById("btn-all").classList.remove("active");
+
+      // add active to selected button
+      document.getElementById(`btn-${filter}`).classList.add("active");
+
+      refresh();
+      loadSummary();
+      loadTopSpecies();
+    }
+
     async function refresh() {
       try {
-        const res = await fetch("/latest");
+        const res = await fetch(`/latest?filter=${currentFilter}`);
         const data = await res.json();
         if (data.ok) {
         const cardsHtml = data.rows.map((x, i) => `
@@ -118,7 +209,7 @@ HTML = """
 
     async function loadSummary() {
       try {
-        const res = await fetch("/summary");
+        const res = await fetch(`/summary?filter=${currentFilter}`);
         const data = await res.json();
 
         if (data.ok) {
@@ -129,6 +220,25 @@ HTML = """
         }
       } catch (e) {
         console.error("Summary error:", e);
+      }
+    }
+
+    async function loadTopSpecies() {
+      try {
+        const res = await fetch(`/top-species?filter=${currentFilter}`);
+        const data = await res.json();
+
+        if (data.ok) {
+          const html = data.rows.map((x, i) => `
+            <div style="margin-bottom: 8px; font-size: 16px; font-weight: 500;">
+              ${i + 1}. ${x.species} - ${x.count}
+            </div>
+          `).join("");
+
+          document.getElementById("topSpeciesList").innerHTML = html;
+        }
+      } catch (e) {
+        console.error("Top species error:", e);
       }
     }
 
@@ -145,8 +255,7 @@ HTML = """
         minute: "2-digit"
       });
     }
-    refresh();
-    loadSummary();
+    setFilter("all");
 
     setInterval(() => {
       refresh();
@@ -168,12 +277,17 @@ def latest():
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
 
-        rows = cursor.execute("""
+        filter_value = request.args.get("filter", "all")
+        where_clause, params = get_filter_condition(filter_value)
+
+        query = f"""
             SELECT species, timestamp, confidence
             FROM detections
+            {where_clause}
             ORDER BY timestamp DESC
             LIMIT 5
-        """).fetchall()
+        """
+        rows = cursor.execute(query, params).fetchall()
 
         result = []
         for r in rows:
@@ -216,25 +330,35 @@ def summary():
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
 
-        total_detections = cursor.execute("""
-            SELECT COUNT(*) FROM detections
-        """).fetchone()[0]
+        filter_value = request.args.get("filter", "all")
+        where_clause, params = get_filter_condition(filter_value)
 
-        unique_species = cursor.execute("""
-            SELECT COUNT(DISTINCT species) FROM detections
-        """).fetchone()[0]
+        total_detections = cursor.execute(
+            f"SELECT COUNT(*) FROM detections {where_clause}",
+            params
+        ).fetchone()[0]
 
-        top_species_row = cursor.execute("""
+        unique_species = cursor.execute(
+            f"SELECT COUNT(DISTINCT species) FROM detections {where_clause}",
+            params
+        ).fetchone()[0]
+
+        top_species_row = cursor.execute(
+            f"""
             SELECT species, COUNT(*) as cnt
             FROM detections
+            {where_clause}
             GROUP BY species
             ORDER BY cnt DESC
             LIMIT 1
-        """).fetchone()
+            """,
+            params
+        ).fetchone()
 
-        latest_timestamp_row = cursor.execute("""
-            SELECT MAX(timestamp) FROM detections
-        """).fetchone()
+        latest_timestamp_row = cursor.execute(
+            f"SELECT MAX(timestamp) FROM detections {where_clause}",
+            params
+        ).fetchone()
 
         conn.close()
 
@@ -251,6 +375,41 @@ def summary():
 
     except Exception as e:
         return jsonify(ok=False, error=str(e))
+    
+@app.get("/top-species")
+def top_species():
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        filter_value = request.args.get("filter", "all")
+        where_clause, params = get_filter_condition(filter_value)
+
+        rows = cursor.execute(
+            f"""
+            SELECT species, COUNT(*) as cnt
+            FROM detections
+            {where_clause}
+            GROUP BY species
+            ORDER BY cnt DESC
+            LIMIT 5
+            """,
+            params
+        ).fetchall()
+
+        conn.close()
+
+        result = []
+        for r in rows:
+            result.append({
+                "species": r[0],
+                "count": r[1]
+            })
+
+        return jsonify(ok=True, rows=result)
+
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))    
 
 if __name__ == "__main__":
     app.run(debug=True)
