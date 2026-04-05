@@ -1,17 +1,14 @@
-import sqlite3 # imports SQLite library - used to create and manage local DB
+import sqlite3
 
 DB_NAME = "birds.db"
 
-# function to open a connection to the DB
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-# function to create table if not already present
 def create_table():
     conn = get_connection()
-    cursor = conn.cursor() # cursor lets you run SQL queries
+    cursor = conn.cursor()
 
-    # SQL command to create table only if it doesn't exist
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS detections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,8 +19,20 @@ def create_table():
     )
     """)
 
-    conn.commit() #saves changes to DB
-    conn.close() #closes DB connection
+    try:
+        cursor.execute("ALTER TABLE detections ADD COLUMN lat REAL")
+        print("Added lat column")
+    except sqlite3.OperationalError as e:
+        print("lat column:", e)
+
+    try:
+        cursor.execute("ALTER TABLE detections ADD COLUMN lon REAL")
+        print("Added lon column")
+    except sqlite3.OperationalError as e:
+        print("lon column:", e)
+
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
     create_table()

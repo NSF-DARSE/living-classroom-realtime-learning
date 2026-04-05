@@ -101,7 +101,16 @@ HTML = """
     border: none;
   }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
+
+
+
+
+
+
+
 
 <body>
   <h2>UD Farm Bird Monitoring Dashboard</h2>
@@ -134,7 +143,10 @@ HTML = """
     </div>
   </div>
   
-  
+  <h3>Map View</h3>
+    <div id="map" style="height: 400px; margin-bottom: 20px;"></div>
+
+
   <div class="two-col">
 
     <!-- LEFT -->
@@ -262,6 +274,33 @@ HTML = """
       loadSummary();
     }, 10000);
 
+    
+
+
+    let map = L.map('map').setView([39.8, -75.8], 12);
+
+    let markersLayer = L.layerGroup().addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    async function loadMap() {
+      const res = await fetch("/locations");
+      const data = await res.json();
+      
+      markersLayer.clearLayers();  
+
+      data.forEach(d => {
+        if (d.lat && d.lon) {
+          L.marker([d.lat, d.lon])
+            .addTo(markersLayer)
+            .bindPopup(d.species);
+        }
+      });
+    }
+    loadMap();
+    setInterval(loadMap, 10000);
   </script>
 </body>
 </html>
@@ -410,6 +449,32 @@ def top_species():
 
     except Exception as e:
         return jsonify(ok=False, error=str(e))    
+
+
+@app.get("/locations")
+def locations():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    rows = cursor.execute("""
+        SELECT species, lat, lon
+        FROM detections
+        WHERE lat IS NOT NULL AND lon IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 50
+    """).fetchall()
+
+    conn.close()
+
+    result = []
+    for r in rows:
+        result.append({
+            "species": r[0],
+            "lat": r[1],
+            "lon": r[2]
+        })
+
+    return jsonify(result)    
 
 if __name__ == "__main__":
     app.run(debug=True)
